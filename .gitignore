@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+env/
+json2excel_env/
+
+# Uploaded files
+uploads/
+
+# Test files
+sample.json
+
+# OS files
+.DS_Store
+Thumbs.db

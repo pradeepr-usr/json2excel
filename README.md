@@ -1,0 +1,1 @@
+pip install fastapi uvicorn pandas openpyxl python-multipart

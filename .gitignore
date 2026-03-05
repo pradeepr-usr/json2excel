@@ -16,3 +16,9 @@ sample.json
 # OS files
 .DS_Store
 Thumbs.db
+
+# Test data
+test_json/
+
+# Logs
+*.log

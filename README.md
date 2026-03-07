@@ -14,6 +14,11 @@ https://json2excel-app.onrender.com/docs
 
 ---
 
+<!-- Screenshot: Full app UI (dark theme, empty state, no file selected) -->
+<!-- Add: docs/screenshots/ui-overview.png -->
+
+---
+
 ## 🚀 Features
 
 - Convert JSON files to Excel instantly
@@ -25,6 +30,28 @@ https://json2excel-app.onrender.com/docs
 - Automatic column sizing with bold headers
 - Safe Excel sheet name handling
 - Built-in JSON validation and error handling
+- **JSON structure preview** before conversion
+- **Conversion summary** — sheets, rows, file size, and time after every conversion
+- **Upload progress bar** with real-time percentage
+- **Drag & drop** with visual feedback
+
+---
+
+## 🖼 Screenshots
+
+### Upload & Preview
+
+![description](docs/screenshots/ui-overview.png)
+![description](docs/screenshots/json-preview2.png)
+
+### Conversion Summary
+
+![description](docs/screenshots/conversion-summary.png)
+
+### Excel Output
+
+![description](docs/screenshots/root.png)
+![description](docs/screenshots/items.png)
 
 ---
 
@@ -69,7 +96,7 @@ This structure preserves the original JSON relationships inside Excel.
 ## 🏗 Architecture
 
 ```
-React + Vite + Tailwind
+React + Vite + Tailwind v4
         ↓
      FastAPI API
         ↓
@@ -84,7 +111,7 @@ React + Vite + Tailwind
 
 ## 🛠 Tech Stack
 
-**Frontend:** React, Vite, TailwindCSS, TypeScript
+**Frontend:** React, Vite, TailwindCSS v4, TypeScript
 
 **Backend:** Python, FastAPI, OpenPyXL, Uvicorn
 
@@ -155,12 +182,22 @@ curl -X POST \
   --output output.xlsx
 ```
 
+**Response headers include conversion metadata:**
+
+| Header               | Description                |
+| -------------------- | -------------------------- |
+| `X-Summary-Sheets`   | Number of sheets generated |
+| `X-Summary-Rows`     | Total rows written         |
+| `X-Summary-Size-KB`  | Output file size in KB     |
+| `X-Summary-Time-Sec` | Processing time in seconds |
+
 ---
 
 ## 🛡 Safety Features
 
 - JSON format validation
-- File size and row explosion protection
+- File size protection (max 5MB)
+- Row explosion protection (max 50k objects)
 - Safe Excel sheet naming
 - Memory-efficient Excel generation
 
@@ -178,10 +215,13 @@ curl -X POST \
 
 ## 🔮 Roadmap
 
-- JSON preview before conversion
-- Column selection UI
-- Batch file conversion
-- Dark mode interface
+- [x] JSON structure preview before conversion
+- [x] Conversion summary (sheets, rows, size, time)
+- [x] Upload progress indicator
+- [x] Dark mode interface
+- [ ] Column selection UI
+- [ ] Batch file conversion
+- [ ] API mode (send JSON directly, no file upload)
 
 ---
 

@@ -12,9 +12,8 @@ class SheetManager:
         self.headers = {}
         self.sheet_name_map = {}
         self.sheet_name_counter = {}
-
-        # Track column width
         self.column_widths = {}
+        self.row_counts = {}  # Track rows per sheet
 
     def clean_sheet_name(self, name):
 
@@ -38,7 +37,6 @@ class SheetManager:
 
         if sheet_name not in self.sheets:
 
-            # Ensure ROOT sheet always first
             if sheet_name == "root":
                 sheet = self.workbook.active
                 sheet.title = "root"
@@ -48,13 +46,13 @@ class SheetManager:
             self.sheets[sheet_name] = sheet
             self.headers[sheet_name] = None
             self.column_widths[sheet_name] = {}
+            self.row_counts[sheet_name] = 0
 
         return sheet_name, self.sheets[sheet_name]
 
     def update_column_width(self, sheet_name, column_index, value):
 
         value_length = len(str(value)) if value is not None else 0
-
         current = self.column_widths[sheet_name].get(column_index, 0)
 
         if value_length > current:
@@ -70,8 +68,7 @@ class SheetManager:
             self.headers[sheet_name] = headers
 
             sheet.append(headers)
-            
-            # Make headers bold
+
             for cell in sheet[1]:
                 cell.font = Font(bold=True)
 
@@ -79,10 +76,10 @@ class SheetManager:
                 self.update_column_width(sheet_name, idx, header)
 
         headers = self.headers[sheet_name]
-
         values = [row.get(h) for h in headers]
 
         sheet.append(values)
+        self.row_counts[sheet_name] += 1
 
         for idx, value in enumerate(values, start=1):
             self.update_column_width(sheet_name, idx, value)
@@ -90,14 +87,13 @@ class SheetManager:
     def apply_column_widths(self):
 
         for sheet_name, sheet in self.sheets.items():
-
             widths = self.column_widths[sheet_name]
-
             for col_idx, width in widths.items():
-
                 col_letter = sheet.cell(row=1, column=col_idx).column_letter
-
                 sheet.column_dimensions[col_letter].width = min(width + 2, 50)
+
+    def get_total_rows(self):
+        return sum(self.row_counts.values())
 
 
 def json_to_excel_bytes(data):
@@ -105,7 +101,6 @@ def json_to_excel_bytes(data):
     start_time = time.time()
 
     workbook = Workbook()
-
     sheet_manager = SheetManager(workbook)
 
     global_id = 1
@@ -122,13 +117,9 @@ def json_to_excel_bytes(data):
         stack = [(d, parent_key)]
 
         while stack:
-
             current_dict, prefix = stack.pop()
-
             for k, v in current_dict.items():
-
                 new_key = f"{prefix}.{k}" if prefix else k
-
                 if isinstance(v, dict):
                     stack.append((v, new_key))
                 else:
@@ -139,25 +130,20 @@ def json_to_excel_bytes(data):
     def process_node(node, sheet_name="root", parent_id=None):
 
         if isinstance(node, list):
-
             for item in node:
                 process_node(item, sheet_name, parent_id)
-
             return
 
         if isinstance(node, dict):
 
             row = {}
-
             current_id = generate_id()
-
             row["_id"] = current_id
             row["_parent_id"] = parent_id
 
             for key, value in node.items():
 
                 if isinstance(value, dict):
-
                     row.update(flatten_dict(value, key))
 
                 elif isinstance(value, list):
@@ -168,51 +154,50 @@ def json_to_excel_bytes(data):
                     child_sheet = f"{sheet_name}_{key}"
 
                     if all(isinstance(i, dict) for i in value):
-
                         for item in value:
                             process_node(item, child_sheet, current_id)
-
                     else:
-
                         for item in value:
-
                             primitive_row = {
                                 "_id": generate_id(),
                                 "_parent_id": current_id,
                                 "value": item
                             }
-
                             sheet_manager.write_row(child_sheet, primitive_row)
 
                 else:
-
                     row[key] = value
 
             sheet_manager.write_row(sheet_name, row)
 
     if isinstance(data, list):
         process_node(data, "root", None)
-
     elif isinstance(data, dict):
         process_node(data, "root", None)
-
     else:
         raise ValueError("Unsupported JSON structure")
 
-    # Apply column auto width
     sheet_manager.apply_column_widths()
 
     output = BytesIO()
-
     workbook.save(output)
-
     output.seek(0)
 
     end_time = time.time()
+    file_size_bytes = output.getbuffer().nbytes
+
+    summary = {
+        "sheets": len(sheet_manager.sheets),
+        "rows": sheet_manager.get_total_rows(),
+        "file_size_kb": round(file_size_bytes / 1024, 1),
+        "time_sec": round(end_time - start_time, 3),
+    }
 
     print("------ JSON → Excel Streaming Report ------")
-    print(f"Sheets created: {len(sheet_manager.sheets)}")
-    print(f"Time taken: {round(end_time - start_time,3)}s")
+    print(f"Sheets created : {summary['sheets']}")
+    print(f"Total rows     : {summary['rows']}")
+    print(f"File size      : {summary['file_size_kb']} KB")
+    print(f"Time taken     : {summary['time_sec']}s")
     print("-------------------------------------------")
 
-    return output
+    return output, summary

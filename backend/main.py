@@ -12,10 +12,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition"]
+    expose_headers=["Content-Disposition", "X-Summary-Sheets", "X-Summary-Rows", "X-Summary-Size-KB", "X-Summary-Time-Sec"]
 )
 
-MAX_FILE_SIZE = 5 * 1024 * 1024  # 2MB
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 
 @app.get("/")
@@ -54,22 +54,25 @@ async def convert(file: UploadFile = File(...)):
                 status_code=400,
                 content={"error": "Invalid JSON format"}
             )
-        
-        # Protect against massive JSON arrays
+
         if isinstance(data, list) and len(data) > 50000:
             return JSONResponse(
                 status_code=400,
                 content={"error": "JSON too large (max 50k objects)"}
             )
-        
+
         del contents  # free memory
 
         original_name = file.filename.rsplit(".", 1)[0]
 
-        excel_buffer = json_to_excel_bytes(data)
+        excel_buffer, summary = json_to_excel_bytes(data)
 
         headers = {
-            "Content-Disposition": f'attachment; filename="{original_name}.xlsx"'
+            "Content-Disposition": f'attachment; filename="{original_name}.xlsx"',
+            "X-Summary-Sheets": str(summary["sheets"]),
+            "X-Summary-Rows": str(summary["rows"]),
+            "X-Summary-Size-KB": str(summary["file_size_kb"]),
+            "X-Summary-Time-Sec": str(summary["time_sec"]),
         }
 
         return StreamingResponse(

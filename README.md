@@ -2,7 +2,17 @@
 
 A high-performance web application that converts complex JSON files into structured Excel spreadsheets.
 
-This tool automatically flattens nested JSON, preserves relationships between objects, and generates multiple Excel sheets when required.
+The tool automatically **flattens nested JSON**, **preserves relationships between objects**, and generates **multiple Excel sheets** when required.
+
+---
+
+# 🌐 Live Demo
+
+Frontend  
+https://json2excel-frontend.onrender.com
+
+Backend API (Swagger Docs)  
+https://json2excel-app.onrender.com/docs
 
 ---
 
@@ -10,23 +20,23 @@ This tool automatically flattens nested JSON, preserves relationships between ob
 
 - Convert JSON files to Excel instantly
 - Handles **deeply nested JSON**
-- Automatically creates **multiple relational sheets**
-- Maintains **parent-child relationships** using `_id` and `_parent_id`
+- Automatically generates **multiple relational sheets**
+- Preserves hierarchy using `_id` and `_parent_id`
 - Supports **arrays, nested objects, and mixed JSON structures**
-- **Streaming Excel writer** for faster performance
-- **Auto column sizing**
+- **Streaming Excel generation** for large files
+- Automatic **column sizing**
 - **Bold Excel headers**
 - Safe Excel **sheet name handling**
 - Built-in **JSON validation**
-- File size protection and error handling
+- **Error handling and file protection**
 
 ---
 
 # 🧠 How It Works
 
-The converter analyzes JSON structure and generates Excel sheets based on hierarchy.
+The converter analyzes the JSON hierarchy and maps it into relational Excel sheets.
 
-Example:
+Example JSON:
 
 ```json
 {
@@ -39,191 +49,154 @@ Example:
     { "product": "Mouse", "price": 1000 }
   ]
 }
-```
+
 
 Generated Excel structure:
 
-### Sheet: `root`
+Sheet: root
 
-| \_id | \_parent_id | order_id | customer.name |
-| ---- | ----------- | -------- | ------------- |
-| 1    |             | 101      | Pradeep       |
+| _id | _parent_id | order_id | customer.name |
+| --- | ---------- | -------- | ------------- |
+| 1   |            | 101      | Pradeep       |
 
-### Sheet: `items`
+Sheet: items
 
-| \_id | \_parent_id | product | price |
-| ---- | ----------- | ------- | ----- |
-| 2    | 1           | Laptop  | 70000 |
-| 3    | 1           | Mouse   | 1000  |
+| _id | _parent_id | product | price |
+| --- | ---------- | ------- | ----- |
+| 2   | 1          | Laptop  | 70000 |
+| 3   | 1          | Mouse   | 1000  |
 
-This relational structure preserves the original JSON hierarchy.
+This preserves the original JSON relationships inside Excel.
 
----
+🏗 Architecture
 
-# 🛠 Tech Stack
+React + Vite + Tailwind
+        ↓
+     FastAPI API
+        ↓
+    JSON Parser
+        ↓
+   OpenPyXL Engine
+        ↓
+   Excel File Download
 
-Backend
 
-- Python
-- FastAPI
-- OpenPyXL (Excel generation)
-- Uvicorn
+🛠 Tech Stack
+Frontend:
 
-Frontend
+React
+Vite
+TailwindCSS
+TypeScript
 
-- HTML / JavaScript (initial version)
+Backend:
 
----
+Python
+FastAPI
+OpenPyXL
+Uvicorn
 
-# 📂 Project Structure
+Deployment:
 
-```
-.
-├── main.py            # FastAPI API server
-├── converter.py       # JSON → Excel conversion engine
-├── requirements.txt
-├── Procfile
-├── static/
-│   └── index.html
+Render (Frontend + Backend)
+
+
+📂 Project Structure
+
+json2excel
+│
+├── backend
+│   ├── main.py
+│   ├── converter.py
+│   └── requirements.txt
+│
+├── frontend
+│   ├── src
+│   ├── package.json
+│   └── vite.config.ts
+│
 └── README.md
-```
 
----
-
-# ⚙️ Installation (Local Setup)
+⚙️ Local Setup
 
 Clone repository
 
-```bash
-git clone https://github.com/YOUR_USERNAME/json2excel.git
+git clone https://github.com/pradeepr-usr/json2excel.git
 cd json2excel
-```
+Backend Setup
 
 Create virtual environment
 
-```bash
 python -m venv env
 source env/bin/activate
-```
 
 Install dependencies
 
-```bash
-pip install -r requirements.txt
-```
+pip install -r backend/requirements.txt
 
-Run the server
+Run backend
 
-```bash
-uvicorn main:app --reload
-```
+uvicorn backend.main:app --reload
 
-Open browser
+Backend runs at:
 
-```
 http://127.0.0.1:8000
-```
+Frontend Setup
+cd frontend
+npm install
+npm run dev
 
----
+Frontend runs at:
 
-# 📡 API Endpoint
-
-### POST `/convert/`
+http://localhost:5173
+📡 API Endpoint
+POST /convert/
 
 Upload a JSON file and receive an Excel file.
 
-Example request using curl:
+Example request:
 
-```bash
 curl -X POST \
-  -F "file=@example.json" \
-  http://127.0.0.1:8000/convert/ \
-  --output output.xlsx
-```
+-F "file=@example.json" \
+http://127.0.0.1:8000/convert/ \
+--output output.xlsx
+🛡 Safety Features
 
----
+JSON format validation
 
-# 🛡 Safety Features
+File size protection
 
-- JSON format validation
-- File size protection
-- Row explosion protection
-- Safe Excel sheet naming
-- Memory-efficient streaming writer
+Row explosion protection
 
----
+Safe Excel sheet naming
 
-# 📥 Usage
+Memory-efficient Excel generation
 
-1. Upload a JSON file
-2. Click **Convert**
-3. Download the generated Excel file
-
----
-
-# 📌 Supported JSON Structures
-
-The converter supports:
-
-- Flat JSON
-- Deeply nested JSON
-- Arrays of objects
-- Arrays of primitive values
-- Mixed structures
-
-Example:
-
-```json
-{
-  "user": {
-    "name": "Alice",
-    "skills": ["Python", "SQL"]
-  }
-}
-```
-
----
-
-# 🧪 Performance
+📊 Performance
 
 Typical conversion time:
+| JSON Size         | Time   |
+| ----------------- | ------ |
+| Small (<100 rows) | <0.05s |
+| Medium (~1k rows) | ~0.2s  |
+| Large (~10k rows) | <1s    |
 
-| JSON Size         | Time    |
-| ----------------- | ------- |
-| Small (<100 rows) | < 0.05s |
-| Medium (1k rows)  | ~0.2s   |
-| Large (10k rows)  | < 1s    |
-
----
-
-# 🌐 Deployment
-
-This application can be deployed on platforms like:
-
-- Render
-- Railway
-- VPS servers
-
-Production start command:
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port $PORT
 ```
 
----
+🔮 Future Improvements
 
-# 🔮 Future Improvements
+>JSON preview before conversion
 
-- React frontend UI
-- Drag & drop JSON upload
-- JSON preview before conversion
-- Column selection
-- Large JSON streaming support
-- Dark mode interface
+>Column selection UI
 
----
+>Batch JSON file conversion
 
-# 👨‍💻 Author
+>Large JSON streaming
+
+>Dark mode interface
+
+
+👨‍💻 Author
 
 Pradeep
 Software Developer

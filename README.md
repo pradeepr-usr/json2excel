@@ -14,11 +14,6 @@ https://json2excel-app.onrender.com/docs
 
 ---
 
-<!-- Screenshot: Full app UI (dark theme, empty state, no file selected) -->
-<!-- Add: docs/screenshots/ui-overview.png -->
-
----
-
 ## 🚀 Features
 
 - Convert JSON files to Excel instantly
@@ -34,6 +29,9 @@ https://json2excel-app.onrender.com/docs
 - **Conversion summary** — sheets, rows, file size, and time after every conversion
 - **Upload progress bar** with real-time percentage
 - **Drag & drop** with visual feedback
+- **Column selection** — choose exactly which fields to include
+- **Batch conversion** — upload multiple JSON files, get one combined Excel
+- **API mode** — send raw JSON directly, no file upload needed
 
 ---
 
@@ -41,17 +39,26 @@ https://json2excel-app.onrender.com/docs
 
 ### Upload & Preview
 
-![description](docs/screenshots/ui-overview.png)
-![description](docs/screenshots/json-preview.png)
+![UI Overview](docs/screenshots/ui-overview_latest.png)
+![JSON Preview](docs/screenshots/json_preview_latest.png)
+
+### Batch Upload
+
+![Batch Upload](docs/screenshots/batch_upload.png)
 
 ### Conversion Summary
 
-![description](docs/screenshots/conversion-summary.png)
+![Conversion Summary](docs/screenshots/conversion_summary_latest.png)
+
+### Column selection
+
+![Column Selection](docs/screenshots/column_selection.png)
 
 ### Excel Output
 
-![description](docs/screenshots/root.png)
-![description](docs/screenshots/items.png)
+![Root Sheet](docs/screenshots/root.png)
+![Items Sheet](docs/screenshots/items_latest.png)
+![Batch upload Sheet](docs/screenshots/batch_upload_xlsx.png)
 
 ---
 
@@ -173,7 +180,9 @@ Runs at `http://localhost:5173`
 
 ## 📡 API
 
-`POST /convert/` — Upload a JSON file and receive an Excel file in return.
+### File Upload
+
+`POST /convert/` — Upload a JSON file and receive an Excel file.
 
 ```bash
 curl -X POST \
@@ -182,21 +191,69 @@ curl -X POST \
   --output output.xlsx
 ```
 
-**Response headers include conversion metadata:**
+With field filtering:
 
-| Header               | Description                |
-| -------------------- | -------------------------- |
-| `X-Summary-Sheets`   | Number of sheets generated |
-| `X-Summary-Rows`     | Total rows written         |
-| `X-Summary-Size-KB`  | Output file size in KB     |
-| `X-Summary-Time-Sec` | Processing time in seconds |
+```bash
+curl -X POST \
+  -F "file=@example.json" \
+  -F "fields=id,name,price" \
+  http://127.0.0.1:8000/convert/ \
+  --output output.xlsx
+```
+
+### Batch Upload
+
+`POST /batch-convert/` — Convert multiple JSON files into one Excel workbook. Each file becomes its own sheet.
+
+```bash
+curl -X POST \
+  -F "files=@orders.json" \
+  -F "files=@users.json" \
+  -F "files=@products.json" \
+  http://127.0.0.1:8000/batch-convert/ \
+  --output batch.xlsx
+```
+
+### API Mode
+
+`POST /convert-json/` — Send raw JSON directly in the request body. No file upload needed. Ideal for scripts, ETL pipelines, and automation.
+
+```bash
+curl -X POST http://127.0.0.1:8000/convert-json/ \
+  -H "Content-Type: application/json" \
+  -d '[{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]' \
+  --output result.xlsx
+```
+
+With field filtering and custom filename:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/convert-json/?fields=id,name&filename=users" \
+  -H "Content-Type: application/json" \
+  -d '[{"id": 1, "name": "Alice", "secret": "hidden"}]' \
+  --output users.xlsx
+```
+
+### Response Headers
+
+All endpoints return conversion metadata in response headers:
+
+| Header               | Description                                        |
+| -------------------- | -------------------------------------------------- |
+| `X-Summary-Sheets`   | Number of sheets generated                         |
+| `X-Summary-Rows`     | Total rows written                                 |
+| `X-Summary-Size-KB`  | Output file size in KB                             |
+| `X-Summary-Time-Sec` | Processing time in seconds                         |
+| `X-Summary-Files`    | Number of files processed (batch only)             |
+| `X-Summary-Errors`   | Number of files skipped due to errors (batch only) |
 
 ---
 
 ## 🛡 Safety Features
 
 - JSON format validation
-- File size protection (max 5MB)
+- File size protection (max 5MB per file)
+- Batch size protection (max 10 files, 20MB total)
 - Row explosion protection (max 50k objects)
 - Safe Excel sheet naming
 - Memory-efficient Excel generation
@@ -219,9 +276,11 @@ curl -X POST \
 - [x] Conversion summary (sheets, rows, size, time)
 - [x] Upload progress indicator
 - [x] Dark mode interface
-- [ ] Column selection UI
-- [ ] Batch file conversion
-- [ ] API mode (send JSON directly, no file upload)
+- [x] Column selection UI
+- [x] Batch file conversion
+- [x] API mode (send JSON directly, no file upload)
+- [ ] Authentication and usage limits
+- [ ] Paid plans via Stripe
 
 ---
 

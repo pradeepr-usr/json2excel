@@ -1,8 +1,9 @@
-# # converter.py
+# # # converter.py
 
 from openpyxl import Workbook
 from io import BytesIO
 import time
+import json
 from openpyxl.styles import Font
 
 
@@ -85,10 +86,6 @@ class SheetManager:
 
 
 def extract_fields(data) -> list[str]:
-    """
-    Walk the JSON and return all leaf field paths.
-    Arrays of objects use [] notation: items[].product
-    """
     fields = []
     seen = set()
 
@@ -112,15 +109,9 @@ def extract_fields(data) -> list[str]:
 
 
 def json_to_excel_bytes(data, selected_fields: list[str] | None = None):
-    """
-    Convert JSON to Excel.
-    selected_fields: if provided, only include these fields in root sheet.
-                     Child sheets (arrays) are always included but also filtered.
-    """
+    """Single file conversion — returns (buffer, summary)."""
     start_time = time.time()
 
-    # Build a set of selected fields for fast lookup
-    # Also build per-sheet allowed columns derived from selected fields
     filter_active = selected_fields is not None and len(selected_fields) > 0
 
     workbook = Workbook()
@@ -148,27 +139,17 @@ def json_to_excel_bytes(data, selected_fields: list[str] | None = None):
         return items
 
     def should_include_field(field_name: str, sheet_name: str) -> bool:
-        """Check if a field should be included based on selected_fields."""
         if not filter_active:
             return True
-
-        # Always keep _id and _parent_id
         if field_name in ("_id", "_parent_id"):
             return True
-
-        # For root sheet: match directly
         if sheet_name == "root":
             return field_name in selected_fields
-
-        # For child sheets (e.g. items): match fields like "items[].product"
-        # sheet_name raw key ends with the array key e.g. "root_items"
-        # selected_fields for child look like "items[].product"
-        sheet_key = sheet_name.split("_")[-1]  # e.g. "items"
+        sheet_key = sheet_name.split("_")[-1]
         qualified = f"{sheet_key}[].{field_name}"
         return qualified in selected_fields
 
     def process_node(node, sheet_name="root", parent_id=None):
-
         if isinstance(node, list):
             for item in node:
                 process_node(item, sheet_name, parent_id)
@@ -181,19 +162,15 @@ def json_to_excel_bytes(data, selected_fields: list[str] | None = None):
             row["_parent_id"] = parent_id
 
             for key, value in node.items():
-
                 if isinstance(value, dict):
                     flat = flatten_dict(value, key)
                     for flat_key, flat_val in flat.items():
                         if should_include_field(flat_key, sheet_name):
                             row[flat_key] = flat_val
-
                 elif isinstance(value, list):
                     if not value:
                         continue
-
                     child_sheet = f"{sheet_name}_{key}"
-
                     if all(isinstance(i, dict) for i in value):
                         for item in value:
                             process_node(item, child_sheet, current_id)
@@ -205,7 +182,6 @@ def json_to_excel_bytes(data, selected_fields: list[str] | None = None):
                                 "value": item
                             }
                             sheet_manager.write_row(child_sheet, primitive_row)
-
                 else:
                     if should_include_field(key, sheet_name):
                         row[key] = value
@@ -235,12 +211,222 @@ def json_to_excel_bytes(data, selected_fields: list[str] | None = None):
         "time_sec": round(end_time - start_time, 3),
     }
 
-    print("------ JSON → Excel Streaming Report ------")
-    print(f"Sheets created : {summary['sheets']}")
-    print(f"Total rows     : {summary['rows']}")
-    print(f"File size      : {summary['file_size_kb']} KB")
-    print(f"Time taken     : {summary['time_sec']}s")
-    print(f"Field filter   : {'active' if filter_active else 'off'}")
-    print("-------------------------------------------")
+    print("------ JSON → Excel Report ------")
+    print(f"Sheets   : {summary['sheets']}")
+    print(f"Rows     : {summary['rows']}")
+    print(f"Size     : {summary['file_size_kb']} KB")
+    print(f"Time     : {summary['time_sec']}s")
+    print(f"Filter   : {'active' if filter_active else 'off'}")
+    print("---------------------------------")
+
+    return output, summary
+
+
+def batch_to_excel_bytes(files: list[tuple[str, bytes]]):
+    """
+    Batch conversion — multiple JSON files into one Excel workbook.
+    Each file becomes one or more sheets named after the filename.
+    files: list of (filename_without_ext, raw_bytes)
+    Returns (buffer, summary)
+    """
+    start_time = time.time()
+
+    workbook = Workbook()
+    # Remove default empty sheet — we'll create named ones
+    default_sheet = workbook.active
+    workbook.remove(default_sheet)
+
+    total_rows = 0
+    total_sheets = 0
+    file_results = []
+
+    global_id = 1
+
+    def generate_id():
+        nonlocal global_id
+        current = global_id
+        global_id += 1
+        return current
+
+    def flatten_dict(d, parent_key=""):
+        items = {}
+        stack = [(d, parent_key)]
+        while stack:
+            current_dict, prefix = stack.pop()
+            for k, v in current_dict.items():
+                new_key = f"{prefix}.{k}" if prefix else k
+                if isinstance(v, dict):
+                    stack.append((v, new_key))
+                else:
+                    items[new_key] = v
+        return items
+
+    # Track used sheet names across all files to avoid collisions
+    used_sheet_names: set[str] = set()
+
+    def safe_sheet_name(name: str) -> str:
+        base = name[:31]
+        if base not in used_sheet_names:
+            used_sheet_names.add(base)
+            return base
+        i = 2
+        while True:
+            candidate = f"{name[:28]}_{i}"[:31]
+            if candidate not in used_sheet_names:
+                used_sheet_names.add(candidate)
+                return candidate
+            i += 1
+
+    def process_file(file_name: str, data):
+        """Process one JSON file into the shared workbook."""
+        nonlocal total_rows, total_sheets, global_id
+
+        # Per-file sheet manager but using shared workbook
+        sheets: dict[str, object] = {}
+        headers: dict[str, list] = {}
+        column_widths: dict[str, dict] = {}
+        row_counts: dict[str, int] = {}
+
+        # Map internal sheet key → actual Excel sheet name
+        # Root sheet for this file is named after the file
+        sheet_name_map: dict[str, str] = {}
+
+        def get_or_create_sheet(raw_key: str) -> tuple[str, object]:
+            if raw_key in sheet_name_map:
+                sheet_name = sheet_name_map[raw_key]
+                return sheet_name, sheets[sheet_name]
+
+            # Derive display name
+            if raw_key == "root":
+                display = safe_sheet_name(file_name)
+            else:
+                # e.g. "root_items" → "orders_items"
+                suffix = raw_key[len("root"):]  # "_items"
+                display = safe_sheet_name(f"{file_name}{suffix}")
+
+            sheet_name_map[raw_key] = display
+            sheet = workbook.create_sheet(display)
+            sheets[display] = sheet
+            headers[display] = None
+            column_widths[display] = {}
+            row_counts[display] = 0
+            return display, sheet
+
+        def update_col_width(sname, col_idx, value):
+            vl = len(str(value)) if value is not None else 0
+            current = column_widths[sname].get(col_idx, 0)
+            if vl > current:
+                column_widths[sname][col_idx] = vl
+
+        def write_row(raw_key: str, row: dict):
+            sname, sheet = get_or_create_sheet(raw_key)
+            if headers[sname] is None:
+                hdrs = list(row.keys())
+                headers[sname] = hdrs
+                sheet.append(hdrs)
+                for cell in sheet[1]:
+                    cell.font = Font(bold=True)
+                for idx, h in enumerate(hdrs, start=1):
+                    update_col_width(sname, idx, h)
+            hdrs = headers[sname]
+            values = [row.get(h) for h in hdrs]
+            sheet.append(values)
+            row_counts[sname] += 1
+            for idx, v in enumerate(values, start=1):
+                update_col_width(sname, idx, v)
+
+        def process_node(node, sheet_key="root", parent_id=None):
+            if isinstance(node, list):
+                for item in node:
+                    process_node(item, sheet_key, parent_id)
+                return
+            if isinstance(node, dict):
+                row = {}
+                current_id = generate_id()
+                row["_id"] = current_id
+                row["_parent_id"] = parent_id
+                for key, value in node.items():
+                    if isinstance(value, dict):
+                        flat = flatten_dict(value, key)
+                        row.update(flat)
+                    elif isinstance(value, list):
+                        if not value:
+                            continue
+                        child_key = f"{sheet_key}_{key}"
+                        if all(isinstance(i, dict) for i in value):
+                            for item in value:
+                                process_node(item, child_key, current_id)
+                        else:
+                            for item in value:
+                                write_row(child_key, {
+                                    "_id": generate_id(),
+                                    "_parent_id": current_id,
+                                    "value": item
+                                })
+                    else:
+                        row[key] = value
+                write_row(sheet_key, row)
+
+        if isinstance(data, list):
+            process_node(data, "root", None)
+        elif isinstance(data, dict):
+            process_node(data, "root", None)
+
+        # Apply column widths for this file's sheets
+        for sname, sheet in sheets.items():
+            for col_idx, width in column_widths[sname].items():
+                col_letter = sheet.cell(row=1, column=col_idx).column_letter
+                sheet.column_dimensions[col_letter].width = min(width + 2, 50)
+
+        file_rows = sum(row_counts.values())
+        file_sheets = len(sheets)
+        total_rows += file_rows
+        total_sheets += file_sheets
+
+        file_results.append({
+            "name": file_name,
+            "sheets": file_sheets,
+            "rows": file_rows,
+        })
+
+    # Process each file
+    errors = []
+    for file_name, raw_bytes in files:
+        try:
+            data = json.loads(raw_bytes)
+            process_file(file_name, data)
+        except Exception as e:
+            print(f"ERROR processing {file_name}: {e}")  # ADD THIS
+            import traceback; traceback.print_exc()       # ADD THIS
+            errors.append({"name": file_name, "error": str(e)})
+
+    if total_sheets == 0:
+        raise ValueError("No valid JSON files could be processed")
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    end_time = time.time()
+    file_size_bytes = output.getbuffer().nbytes
+
+    summary = {
+        "files": len(file_results),
+        "sheets": total_sheets,
+        "rows": total_rows,
+        "file_size_kb": round(file_size_bytes / 1024, 1),
+        "time_sec": round(end_time - start_time, 3),
+        "errors": errors,
+    }
+
+    print("------ Batch JSON → Excel Report ------")
+    print(f"Files    : {summary['files']}")
+    print(f"Sheets   : {summary['sheets']}")
+    print(f"Rows     : {summary['rows']}")
+    print(f"Size     : {summary['file_size_kb']} KB")
+    print(f"Time     : {summary['time_sec']}s")
+    if errors:
+        print(f"Errors   : {len(errors)}")
+    print("---------------------------------------")
 
     return output, summary

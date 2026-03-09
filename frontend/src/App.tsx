@@ -1,4 +1,5 @@
-// App.tsx
+// // App.tsx
+
 import { useState, useEffect } from "react";
 import type { DragEvent } from "react";
 import {
@@ -25,18 +26,21 @@ import {
   ToggleLeft,
   SlidersHorizontal,
   ChevronsUpDown,
+  Files,
+  File as FileIcon,
 } from "lucide-react";
 
 type Stage = "idle" | "uploading" | "downloading" | "done";
+type Mode = "single" | "batch";
 
 interface Summary {
   sheets: number;
   rows: number;
   sizeKb: number;
   timeSec: number;
+  files?: number;
+  errors?: number;
 }
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type JsonValue =
   | string
@@ -52,12 +56,11 @@ function getType(value: JsonValue): string {
   return typeof value;
 }
 
-// ─── Field Extractor (mirrors backend logic) ─────────────────────────────────
+// ─── Field Extractor ─────────────────────────────────────────────────────────
 
 function extractFields(data: JsonValue): string[] {
   const fields: string[] = [];
   const seen = new Set<string>();
-
   function walk(node: JsonValue, prefix: string) {
     if (typeof node === "object" && node !== null && !Array.isArray(node)) {
       for (const [k, v] of Object.entries(node)) {
@@ -82,7 +85,6 @@ function extractFields(data: JsonValue): string[] {
       walk(node[0], prefix);
     }
   }
-
   walk(data, "");
   return fields;
 }
@@ -220,7 +222,6 @@ function JsonPreview({ data }: { data: JsonValue }) {
   const entries = isArray
     ? null
     : Object.entries(data as Record<string, JsonValue>);
-
   return (
     <div className="mt-4 bg-slate-950/60 border border-slate-800 rounded-2xl overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-800 bg-slate-900/60">
@@ -278,16 +279,11 @@ function ColumnSelector({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-
   const filtered = fields.filter((f) =>
     f.toLowerCase().includes(search.toLowerCase()),
   );
-
-  // Group fields by sheet prefix (root vs array children)
   const rootFields = filtered.filter((f) => !f.includes("[]"));
   const childFields = filtered.filter((f) => f.includes("[]"));
-
-  // Unique group prefixes e.g. "items[]"
   const groups = [...new Set(childFields.map((f) => f.split("[]")[0] + "[]"))];
 
   const toggleField = (field: string) => {
@@ -296,18 +292,16 @@ function ColumnSelector({
     else next.add(field);
     onChange(next);
   };
-
   const toggleAll = () => {
     if (selected.size === fields.length) onChange(new Set());
     else onChange(new Set(fields));
   };
-
   const toggleGroup = (prefix: string) => {
-    const groupFields = fields.filter((f) => f.startsWith(prefix));
-    const allSelected = groupFields.every((f) => selected.has(f));
+    const gf = fields.filter((f) => f.startsWith(prefix));
+    const allSel = gf.every((f) => selected.has(f));
     const next = new Set(selected);
-    if (allSelected) groupFields.forEach((f) => next.delete(f));
-    else groupFields.forEach((f) => next.add(f));
+    if (allSel) gf.forEach((f) => next.delete(f));
+    else gf.forEach((f) => next.add(f));
     onChange(next);
   };
 
@@ -317,7 +311,6 @@ function ColumnSelector({
 
   return (
     <div className="mt-4">
-      {/* Toggle button */}
       <button
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center gap-2 bg-slate-950/60 border border-slate-800 hover:border-slate-700 rounded-2xl px-4 py-3 transition-colors"
@@ -345,11 +338,8 @@ function ColumnSelector({
           <ChevronsUpDown size={13} className="text-slate-600" />
         </span>
       </button>
-
-      {/* Panel */}
       {open && (
         <div className="mt-2 bg-slate-950/80 border border-slate-800 rounded-2xl overflow-hidden">
-          {/* Search + select all */}
           <div className="p-3 border-b border-slate-800 flex items-center gap-2">
             <input
               type="text"
@@ -365,10 +355,7 @@ function ColumnSelector({
               {allSelected ? "None" : "All"}
             </button>
           </div>
-
-          {/* Field list */}
           <div className="max-h-56 overflow-y-auto p-2">
-            {/* Root fields */}
             {rootFields.length > 0 && (
               <div className="mb-2">
                 <p className="text-xs text-slate-600 font-medium px-2 py-1">
@@ -384,8 +371,6 @@ function ColumnSelector({
                 ))}
               </div>
             )}
-
-            {/* Child array groups */}
             {groups.map((prefix) => {
               const groupFields = filtered.filter((f) => f.startsWith(prefix));
               const allGroupSelected = groupFields.every((f) =>
@@ -394,7 +379,6 @@ function ColumnSelector({
               const someGroupSelected = groupFields.some((f) =>
                 selected.has(f),
               );
-
               return (
                 <div key={prefix} className="mb-2">
                   <div className="flex items-center gap-2 px-2 py-1">
@@ -429,31 +413,25 @@ function ColumnSelector({
                       {groupFields.length}
                     </span>
                   </div>
-                  {groupFields.map((field) => {
-                    const shortLabel = field.replace(prefix, "");
-                    return (
-                      <FieldRow
-                        key={field}
-                        field={field}
-                        label={shortLabel}
-                        checked={selected.has(field)}
-                        onToggle={() => toggleField(field)}
-                        indent
-                      />
-                    );
-                  })}
+                  {groupFields.map((field) => (
+                    <FieldRow
+                      key={field}
+                      field={field}
+                      label={field.replace(prefix, "")}
+                      checked={selected.has(field)}
+                      onToggle={() => toggleField(field)}
+                      indent
+                    />
+                  ))}
                 </div>
               );
             })}
-
             {filtered.length === 0 && (
               <p className="text-xs text-slate-600 text-center py-4">
                 No fields match
               </p>
             )}
           </div>
-
-          {/* Footer */}
           <div className="px-3 py-2 border-t border-slate-800 flex items-center justify-between">
             <span className="text-xs text-slate-600">
               {selectedCount === 0
@@ -486,14 +464,10 @@ function FieldRow({
   onToggle: () => void;
   indent?: boolean;
 }) {
-  // Determine type hint from field name (best effort)
-  const displayLabel = label ?? field;
-
   return (
     <button
       onClick={onToggle}
-      className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-800/50 transition-colors text-left
-        ${indent ? "pl-6" : ""}`}
+      className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-800/50 transition-colors text-left ${indent ? "pl-6" : ""}`}
     >
       <div
         className={`w-3.5 h-3.5 rounded flex items-center justify-center border flex-shrink-0 transition-colors
@@ -514,19 +488,18 @@ function FieldRow({
       <span
         className={`text-xs truncate ${checked ? "text-slate-300" : "text-slate-500"}`}
       >
-        {displayLabel}
+        {label ?? field}
       </span>
     </button>
   );
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatSize(kb: number): string {
   if (kb >= 1024) return `${(kb / 1024).toFixed(1)} MB`;
   return `${kb} KB`;
 }
-
 function formatRows(n: number): string {
   return n.toLocaleString();
 }
@@ -534,10 +507,19 @@ function formatRows(n: number): string {
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 function App() {
+  const [mode, setMode] = useState<Mode>("single");
+
+  // Single mode state
   const [file, setFile] = useState<File | null>(null);
   const [previewData, setPreviewData] = useState<JsonValue | null>(null);
   const [allFields, setAllFields] = useState<string[]>([]);
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
+
+  // Batch mode state
+  const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const [batchDragActive, setBatchDragActive] = useState(false);
+
+  // Shared state
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState(0);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -550,6 +532,18 @@ function App() {
     return () => clearTimeout(t);
   }, [error]);
 
+  // Reset when switching modes
+  useEffect(() => {
+    setFile(null);
+    setPreviewData(null);
+    setAllFields([]);
+    setSelectedFields(new Set());
+    setBatchFiles([]);
+    setSummary(null);
+    setError(null);
+    setStage("idle");
+  }, [mode]);
+
   const loadPreview = (f: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -558,7 +552,7 @@ function App() {
         setPreviewData(parsed);
         const fields = extractFields(parsed);
         setAllFields(fields);
-        setSelectedFields(new Set(fields)); // default: all selected
+        setSelectedFields(new Set(fields));
       } catch {
         setPreviewData(null);
         setAllFields([]);
@@ -581,18 +575,102 @@ function App() {
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragActive(false);
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile && droppedFile.name.endsWith(".json")) {
-      selectFile(droppedFile);
-    } else {
-      setError("Only JSON files are allowed");
-    }
+    const f = e.dataTransfer.files[0];
+    if (f && f.name.endsWith(".json")) selectFile(f);
+    else setError("Only JSON files are allowed");
+  };
+
+  const addBatchFiles = (incoming: FileList | File[]) => {
+    const arr = Array.from(incoming);
+    const valid = arr.filter((f) => f.name.endsWith(".json"));
+    const invalid = arr.filter((f) => !f.name.endsWith(".json"));
+    if (invalid.length > 0)
+      setError(`${invalid.length} file(s) skipped — only JSON allowed`);
+    setBatchFiles((prev) => {
+      const existing = new Set(prev.map((f) => f.name));
+      const newOnes = valid.filter((f) => !existing.has(f.name));
+      const combined = [...prev, ...newOnes];
+      if (combined.length > 10) {
+        setError("Max 10 files allowed");
+        return combined.slice(0, 10);
+      }
+      return combined;
+    });
+  };
+
+  const removeBatchFile = (name: string) => {
+    setBatchFiles((prev) => prev.filter((f) => f.name !== name));
+  };
+
+  const handleBatchDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setBatchDragActive(false);
+    addBatchFiles(e.dataTransfer.files);
+  };
+
+  // ── XHR upload helper ────────────────────────────────────────────────────
+
+  const doUpload = async (
+    url: string,
+    formData: FormData,
+  ): Promise<{
+    ok: boolean;
+    blob?: Blob;
+    headers?: Record<string, string>;
+    error?: string;
+  }> => {
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable)
+          setProgress(Math.round((e.loaded / e.total) * 100));
+      });
+      xhr.addEventListener("load", () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const headerNames = [
+            "Content-Disposition",
+            "X-Summary-Files",
+            "X-Summary-Sheets",
+            "X-Summary-Rows",
+            "X-Summary-Size-KB",
+            "X-Summary-Time-Sec",
+            "X-Summary-Errors",
+          ];
+          const headers: Record<string, string> = {};
+          headerNames.forEach((h) => {
+            const v = xhr.getResponseHeader(h);
+            if (v) headers[h] = v;
+          });
+          resolve({ ok: true, blob: xhr.response as Blob, headers });
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            resolve({ ok: false, error: err.error ?? "Conversion failed" });
+          } catch {
+            resolve({ ok: false, error: "Conversion failed" });
+          }
+        }
+      });
+      xhr.addEventListener("error", () =>
+        resolve({ ok: false, error: "Network error" }),
+      );
+      xhr.responseType = "blob";
+      xhr.open("POST", url);
+      xhr.send(formData);
+    });
   };
 
   const handleUpload = async () => {
-    if (!file) {
-      setError("Please select a file");
-      return;
+    if (mode === "single") {
+      if (!file) {
+        setError("Please select a file");
+        return;
+      }
+    } else {
+      if (batchFiles.length < 2) {
+        setError("Add at least 2 JSON files");
+        return;
+      }
     }
 
     setError(null);
@@ -600,67 +678,28 @@ function App() {
     setProgress(0);
     setStage("uploading");
 
-    const formData = new FormData();
-    formData.append("file", file);
-
-    // Only send fields param if user has deselected something
-    const allSelected = selectedFields.size === allFields.length;
-    if (!allSelected && selectedFields.size > 0) {
-      formData.append("fields", [...selectedFields].join(","));
-    }
-
     try {
-      const result = await new Promise<{
-        ok: boolean;
-        blob?: Blob;
-        filename?: string;
-        summary?: Summary;
-        error?: string;
-      }>((resolve) => {
-        const xhr = new XMLHttpRequest();
+      let result;
 
-        xhr.upload.addEventListener("progress", (e) => {
-          if (e.lengthComputable)
-            setProgress(Math.round((e.loaded / e.total) * 100));
-        });
-
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            const blob = xhr.response as Blob;
-            const disposition =
-              xhr.getResponseHeader("Content-Disposition") ?? "";
-            const match = disposition.match(/filename="(.+)"/);
-            const filename = match?.[1] ?? "download.xlsx";
-            const summary: Summary = {
-              sheets: parseInt(
-                xhr.getResponseHeader("X-Summary-Sheets") ?? "0",
-              ),
-              rows: parseInt(xhr.getResponseHeader("X-Summary-Rows") ?? "0"),
-              sizeKb: parseFloat(
-                xhr.getResponseHeader("X-Summary-Size-KB") ?? "0",
-              ),
-              timeSec: parseFloat(
-                xhr.getResponseHeader("X-Summary-Time-Sec") ?? "0",
-              ),
-            };
-            resolve({ ok: true, blob, filename, summary });
-          } else {
-            try {
-              const err = JSON.parse(xhr.responseText);
-              resolve({ ok: false, error: err.error ?? "Conversion failed" });
-            } catch {
-              resolve({ ok: false, error: "Conversion failed" });
-            }
-          }
-        });
-
-        xhr.addEventListener("error", () =>
-          resolve({ ok: false, error: "Network error" }),
+      if (mode === "single") {
+        const formData = new FormData();
+        formData.append("file", file!);
+        const allSelected = selectedFields.size === allFields.length;
+        if (!allSelected && selectedFields.size > 0) {
+          formData.append("fields", [...selectedFields].join(","));
+        }
+        result = await doUpload(
+          `${import.meta.env.VITE_API_URL}/convert/`,
+          formData,
         );
-        xhr.responseType = "blob";
-        xhr.open("POST", `${import.meta.env.VITE_API_URL}/convert/`);
-        xhr.send(formData);
-      });
+      } else {
+        const formData = new FormData();
+        batchFiles.forEach((f) => formData.append("files", f));
+        result = await doUpload(
+          `${import.meta.env.VITE_API_URL}/batch-convert/`,
+          formData,
+        );
+      }
 
       if (!result.ok) {
         setError(result.error ?? "Something went wrong");
@@ -671,20 +710,38 @@ function App() {
       setStage("downloading");
       await new Promise((r) => setTimeout(r, 700));
 
+      const h = result.headers!;
+      const disposition = h["Content-Disposition"] ?? "";
+      const match = disposition.match(/filename="(.+)"/);
+      const filename = match?.[1] ?? "download.xlsx";
+
       const url = window.URL.createObjectURL(result.blob!);
       const link = document.createElement("a");
       link.href = url;
-      link.download = result.filename!;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
 
-      setSummary(result.summary!);
-      setPreviewData(null);
-      setAllFields([]);
+      setSummary({
+        files: h["X-Summary-Files"]
+          ? parseInt(h["X-Summary-Files"])
+          : undefined,
+        sheets: parseInt(h["X-Summary-Sheets"] ?? "0"),
+        rows: parseInt(h["X-Summary-Rows"] ?? "0"),
+        sizeKb: parseFloat(h["X-Summary-Size-KB"] ?? "0"),
+        timeSec: parseFloat(h["X-Summary-Time-Sec"] ?? "0"),
+        errors: h["X-Summary-Errors"]
+          ? parseInt(h["X-Summary-Errors"])
+          : undefined,
+      });
+
       setStage("done");
       setFile(null);
+      setPreviewData(null);
+      setAllFields([]);
+      setBatchFiles([]);
       setTimeout(() => setStage("idle"), 3000);
     } catch {
       setError("Something went wrong");
@@ -693,6 +750,7 @@ function App() {
   };
 
   const isLoading = stage === "uploading" || stage === "downloading";
+  const canConvert = mode === "single" ? !!file : batchFiles.length >= 2;
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-6 py-20 gap-10">
@@ -716,96 +774,226 @@ function App() {
 
       {/* Card */}
       <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl shadow-black/40">
-        {/* Drop Zone */}
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragActive(true);
-          }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={handleDrop}
-          className={`rounded-2xl border-2 border-dashed transition-all duration-200 cursor-pointer
-            ${
-              dragActive
-                ? "border-violet-500 bg-violet-500/5 scale-[1.01]"
-                : "border-slate-700 hover:border-violet-500/50 hover:bg-slate-800/50"
-            }`}
-        >
-          <input
-            type="file"
-            accept=".json"
-            id="fileInput"
-            className="hidden"
-            onChange={(e) => {
-              const s = e.target.files?.[0];
-              if (s) selectFile(s);
-            }}
-          />
-          <label htmlFor="fileInput" className="cursor-pointer block p-8">
-            {file ? (
-              <div className="flex items-center gap-3 bg-violet-500/5 border border-violet-500/15 rounded-xl px-4 py-3">
-                <div className="w-10 h-10 rounded-xl bg-violet-500/15 flex items-center justify-center flex-shrink-0">
-                  <FileJson size={20} className="text-violet-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">
-                    {file.name}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {(file.size / 1024).toFixed(1)} KB
-                  </p>
-                </div>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setFile(null);
-                    setPreviewData(null);
-                    setSummary(null);
-                    setAllFields([]);
-                    setSelectedFields(new Set());
-                  }}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-3 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
-                  <UploadCloud size={24} className="text-violet-400" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-300">
-                    Drag & drop your JSON file
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    or click to browse · max 5MB
-                  </p>
-                </div>
-              </div>
-            )}
-          </label>
+        {/* Mode Tabs */}
+        <div className="flex bg-slate-950/60 border border-slate-800 rounded-2xl p-1 mb-6">
+          {(
+            [
+              {
+                id: "single",
+                label: "Single File",
+                icon: <FileIcon size={13} />,
+              },
+              { id: "batch", label: "Batch Upload", icon: <Files size={13} /> },
+            ] as { id: Mode; label: string; icon: React.ReactNode }[]
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setMode(tab.id)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-medium transition-all duration-200
+                ${
+                  mode === tab.id
+                    ? "bg-violet-600 text-white shadow-sm shadow-violet-500/30"
+                    : "text-slate-500 hover:text-slate-300"
+                }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* JSON Preview Tree */}
-        {previewData !== null && !isLoading && (
-          <JsonPreview data={previewData} />
+        {/* ── Single Mode ── */}
+        {mode === "single" && (
+          <>
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragActive(true);
+              }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={handleDrop}
+              className={`rounded-2xl border-2 border-dashed transition-all duration-200 cursor-pointer
+                ${
+                  dragActive
+                    ? "border-violet-500 bg-violet-500/5 scale-[1.01]"
+                    : "border-slate-700 hover:border-violet-500/50 hover:bg-slate-800/50"
+                }`}
+            >
+              <input
+                type="file"
+                accept=".json"
+                id="fileInput"
+                className="hidden"
+                onChange={(e) => {
+                  const s = e.target.files?.[0];
+                  if (s) selectFile(s);
+                }}
+              />
+              <label htmlFor="fileInput" className="cursor-pointer block p-8">
+                {file ? (
+                  <div className="flex items-center gap-3 bg-violet-500/5 border border-violet-500/15 rounded-xl px-4 py-3">
+                    <div className="w-10 h-10 rounded-xl bg-violet-500/15 flex items-center justify-center flex-shrink-0">
+                      <FileJson size={20} className="text-violet-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">
+                        {file.name}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {(file.size / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setFile(null);
+                        setPreviewData(null);
+                        setSummary(null);
+                        setAllFields([]);
+                        setSelectedFields(new Set());
+                      }}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
+                      <UploadCloud size={24} className="text-violet-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-300">
+                        Drag & drop your JSON file
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        or click to browse · max 5MB
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </label>
+            </div>
+            {previewData !== null && !isLoading && (
+              <JsonPreview data={previewData} />
+            )}
+            {allFields.length > 0 && !isLoading && (
+              <ColumnSelector
+                fields={allFields}
+                selected={selectedFields}
+                onChange={setSelectedFields}
+              />
+            )}
+          </>
         )}
 
-        {/* Column Selector */}
-        {allFields.length > 0 && !isLoading && (
-          <ColumnSelector
-            fields={allFields}
-            selected={selectedFields}
-            onChange={setSelectedFields}
-          />
+        {/* ── Batch Mode ── */}
+        {mode === "batch" && (
+          <>
+            {/* Batch drop zone */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setBatchDragActive(true);
+              }}
+              onDragLeave={() => setBatchDragActive(false)}
+              onDrop={handleBatchDrop}
+              className={`rounded-2xl border-2 border-dashed transition-all duration-200 cursor-pointer
+                ${
+                  batchDragActive
+                    ? "border-violet-500 bg-violet-500/5 scale-[1.01]"
+                    : "border-slate-700 hover:border-violet-500/50 hover:bg-slate-800/50"
+                }`}
+            >
+              <input
+                type="file"
+                accept=".json"
+                id="batchInput"
+                className="hidden"
+                multiple
+                onChange={(e) => {
+                  if (e.target.files) addBatchFiles(e.target.files);
+                }}
+              />
+              <label htmlFor="batchInput" className="cursor-pointer block p-6">
+                <div className="flex flex-col items-center gap-3 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
+                    <Files size={24} className="text-violet-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-300">
+                      Drop multiple JSON files
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      or click to browse · max 10 files · 5MB each
+                    </p>
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            {/* File list */}
+            {batchFiles.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <p className="text-xs text-slate-500">
+                    {batchFiles.length} file{batchFiles.length !== 1 ? "s" : ""}{" "}
+                    queued
+                  </p>
+                  <button
+                    onClick={() => setBatchFiles([])}
+                    className="text-xs text-slate-600 hover:text-red-400 transition-colors"
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-1.5">
+                  {batchFiles.map((f) => (
+                    <div
+                      key={f.name}
+                      className="flex items-center gap-3 bg-slate-800/40 border border-slate-700/50 rounded-xl px-3 py-2.5"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-violet-500/10 flex items-center justify-center flex-shrink-0">
+                        <FileJson size={14} className="text-violet-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-300 truncate">
+                          {f.name}
+                        </p>
+                        <p className="text-xs text-slate-600">
+                          {(f.size / 1024).toFixed(1)} KB
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => removeBatchFile(f.name)}
+                        className="text-slate-600 hover:text-red-400 transition-colors flex-shrink-0"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-600 px-1">
+                  Each file becomes its own sheet · Need column control?{" "}
+                  <button
+                    onClick={() => setMode("single")}
+                    className="text-violet-400 hover:text-violet-300 transition-colors"
+                  >
+                    Use single mode
+                  </button>
+                </p>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Upload Progress Bar */}
+        {/* Progress Bar */}
         {stage === "uploading" && (
           <div className="mt-4">
             <div className="flex justify-between text-xs text-slate-400 mb-1.5">
-              <span>Uploading...</span>
+              <span>
+                {mode === "batch" ? "Uploading files..." : "Uploading..."}
+              </span>
               <span>{progress}%</span>
             </div>
             <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
@@ -820,7 +1008,7 @@ function App() {
         {/* Convert Button */}
         <button
           onClick={handleUpload}
-          disabled={isLoading || !file}
+          disabled={isLoading || !canConvert}
           className="mt-4 w-full py-3.5 rounded-2xl text-sm font-semibold text-white
             bg-gradient-to-r from-violet-600 to-violet-500
             shadow-lg shadow-violet-500/25
@@ -847,9 +1035,14 @@ function App() {
             </span>
           )}
           {stage === "idle" &&
-            (selectedFields.size > 0 && selectedFields.size < allFields.length
-              ? `Convert ${selectedFields.size} fields to Excel`
-              : "Convert to Excel")}
+            (mode === "batch"
+              ? batchFiles.length >= 2
+                ? `Convert ${batchFiles.length} files to Excel`
+                : "Convert to Excel"
+              : selectedFields.size > 0 &&
+                  selectedFields.size < allFields.length
+                ? `Convert ${selectedFields.size} fields to Excel`
+                : "Convert to Excel")}
         </button>
 
         {/* Error */}
@@ -883,6 +1076,15 @@ function App() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               {[
+                ...(summary.files !== undefined
+                  ? [
+                      {
+                        icon: <Files size={14} className="text-violet-400" />,
+                        label: "Files",
+                        value: summary.files,
+                      },
+                    ]
+                  : []),
                 {
                   icon: (
                     <TableProperties size={14} className="text-violet-400" />
@@ -918,6 +1120,11 @@ function App() {
                 </div>
               ))}
             </div>
+            {summary.errors !== undefined && summary.errors > 0 && (
+              <p className="mt-2 text-xs text-amber-400/80">
+                {summary.errors} file(s) had errors and were skipped
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -926,7 +1133,7 @@ function App() {
       <div className="flex flex-wrap justify-center gap-2">
         {[
           { icon: <Layers size={12} />, label: "Nested JSON support" },
-          { icon: <Zap size={12} />, label: "Multiple sheets" },
+          { icon: <Zap size={12} />, label: "Batch conversion" },
           { icon: <ShieldCheck size={12} />, label: "Secure & private" },
         ].map(({ icon, label }) => (
           <div

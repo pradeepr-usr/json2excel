@@ -40,6 +40,9 @@ https://json2excel-app.onrender.com/docs
 ### Upload & Preview
 
 ![UI Overview](docs/screenshots/ui-overview_latest.png)
+
+### Json Preview
+
 ![JSON Preview](docs/screenshots/json_preview_latest.png)
 
 ### Batch Upload

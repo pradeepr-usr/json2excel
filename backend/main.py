@@ -1,6 +1,9 @@
-from fastapi import FastAPI, UploadFile, File
+# # main.py
+
+from fastapi import FastAPI, UploadFile, File, Form
+from typing import Optional
 import json
-from converter import json_to_excel_bytes
+from converter import json_to_excel_bytes, extract_fields
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -24,7 +27,10 @@ def health():
 
 
 @app.post("/convert/")
-async def convert(file: UploadFile = File(...)):
+async def convert(
+    file: UploadFile = File(...),
+    fields: Optional[str] = Form(None),  # comma-separated selected field paths
+):
     try:
 
         if not file.filename.lower().endswith(".json"):
@@ -63,9 +69,14 @@ async def convert(file: UploadFile = File(...)):
 
         del contents  # free memory
 
+        # Parse selected fields
+        selected_fields = None
+        if fields and fields.strip():
+            selected_fields = [f.strip() for f in fields.split(",") if f.strip()]
+
         original_name = file.filename.rsplit(".", 1)[0]
 
-        excel_buffer, summary = json_to_excel_bytes(data)
+        excel_buffer, summary = json_to_excel_bytes(data, selected_fields)
 
         headers = {
             "Content-Disposition": f'attachment; filename="{original_name}.xlsx"',

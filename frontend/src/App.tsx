@@ -1,3 +1,4 @@
+// App.tsx
 import { useState, useEffect } from "react";
 import type { DragEvent } from "react";
 import {
@@ -22,6 +23,8 @@ import {
   Type,
   Hash,
   ToggleLeft,
+  SlidersHorizontal,
+  ChevronsUpDown,
 } from "lucide-react";
 
 type Stage = "idle" | "uploading" | "downloading" | "done";
@@ -33,7 +36,7 @@ interface Summary {
   timeSec: number;
 }
 
-// ─── JSON Tree ────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type JsonValue =
   | string
@@ -48,6 +51,43 @@ function getType(value: JsonValue): string {
   if (Array.isArray(value)) return "array";
   return typeof value;
 }
+
+// ─── Field Extractor (mirrors backend logic) ─────────────────────────────────
+
+function extractFields(data: JsonValue): string[] {
+  const fields: string[] = [];
+  const seen = new Set<string>();
+
+  function walk(node: JsonValue, prefix: string) {
+    if (typeof node === "object" && node !== null && !Array.isArray(node)) {
+      for (const [k, v] of Object.entries(node)) {
+        const path = prefix ? `${prefix}.${k}` : k;
+        if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+          walk(v, path);
+        } else if (
+          Array.isArray(v) &&
+          v.length > 0 &&
+          typeof v[0] === "object" &&
+          v[0] !== null
+        ) {
+          walk(v[0], `${path}[]`);
+        } else {
+          if (!seen.has(path)) {
+            seen.add(path);
+            fields.push(path);
+          }
+        }
+      }
+    } else if (Array.isArray(node) && node.length > 0) {
+      walk(node[0], prefix);
+    }
+  }
+
+  walk(data, "");
+  return fields;
+}
+
+// ─── JSON Tree ────────────────────────────────────────────────────────────────
 
 function TypeIcon({ type }: { type: string }) {
   const cls = "flex-shrink-0";
@@ -80,29 +120,24 @@ function TypeBadge({ type, arrayLen }: { type: string; arrayLen?: number }) {
   );
 }
 
-interface TreeNodeProps {
-  label: string;
-  value: JsonValue;
-  depth?: number;
-  defaultOpen?: boolean;
-}
-
 function TreeNode({
   label,
   value,
   depth = 0,
-  defaultOpen = false,
-}: TreeNodeProps) {
+}: {
+  label: string;
+  value: JsonValue;
+  depth?: number;
+}) {
   const type = getType(value);
   const isExpandable = type === "object" || type === "array";
-  const [open, setOpen] = useState(defaultOpen);
-
+  const [open, setOpen] = useState(false);
   const indent = depth * 14;
 
   if (!isExpandable) {
     return (
       <div
-        className="flex items-center gap-1.5 py-0.5 px-2 rounded-md hover:bg-slate-800/50 group"
+        className="flex items-center gap-1.5 py-0.5 px-2 rounded-md hover:bg-slate-800/50"
         style={{ paddingLeft: `${8 + indent}px` }}
       >
         <TypeIcon type={type} />
@@ -114,42 +149,29 @@ function TreeNode({
     );
   }
 
-  const children =
-    type === "array"
-      ? (value as JsonValue[])
-      : Object.entries(value as Record<string, JsonValue>);
-
   const childCount =
-    Array.isArray(children) && type === "array"
-      ? (children as JsonValue[]).length
-      : (children as [string, JsonValue][]).length;
+    type === "array"
+      ? (value as JsonValue[]).length
+      : Object.keys(value as Record<string, JsonValue>).length;
 
-  // For arrays of objects, show the first item's keys as a sample
   const renderChildren = () => {
     if (type === "array") {
       const arr = value as JsonValue[];
-      if (arr.length === 0) return null;
+      if (!arr.length) return null;
       const first = arr[0];
-      const firstType = getType(first);
-
-      if (firstType === "object") {
-        // Show first item's structure as representative sample
+      if (getType(first) === "object") {
         return Object.entries(first as Record<string, JsonValue>).map(
           ([k, v]) => (
             <TreeNode key={k} label={k} value={v} depth={depth + 1} />
           ),
         );
-      } else {
-        // Primitive array — show a few values
-        return arr
-          .slice(0, 3)
-          .map((item, i) => (
-            <TreeNode key={i} label={`[${i}]`} value={item} depth={depth + 1} />
-          ));
       }
+      return arr
+        .slice(0, 3)
+        .map((item, i) => (
+          <TreeNode key={i} label={`[${i}]`} value={item} depth={depth + 1} />
+        ));
     }
-
-    // Object
     return Object.entries(value as Record<string, JsonValue>).map(([k, v]) => (
       <TreeNode key={k} label={k} value={v} depth={depth + 1} />
     ));
@@ -175,16 +197,13 @@ function TreeNode({
             }
           />
         </span>
-        {type === "array" && childCount > 0 && (
-          <span className="text-xs text-slate-600 ml-1">
-            · {childCount} item{childCount !== 1 ? "s" : ""}
-          </span>
+        {childCount > 0 && (
+          <span className="text-xs text-slate-600 ml-1">· {childCount}</span>
         )}
       </button>
-
       {open && (
         <div
-          className="border-l border-slate-800 ml-4"
+          className="border-l border-slate-800"
           style={{ marginLeft: `${14 + indent}px` }}
         >
           {renderChildren()}
@@ -194,22 +213,9 @@ function TreeNode({
   );
 }
 
-interface JsonPreviewProps {
-  data: JsonValue;
-}
-
-function JsonPreview({ data }: JsonPreviewProps) {
+function JsonPreview({ data }: { data: JsonValue }) {
   const type = getType(data);
-
-  const topLevel =
-    type === "array"
-      ? { label: "root", value: data }
-      : type === "object"
-        ? { label: "root", value: data }
-        : null;
-
-  if (!topLevel) return null;
-
+  if (type !== "array" && type !== "object") return null;
   const isArray = type === "array";
   const entries = isArray
     ? null
@@ -217,7 +223,6 @@ function JsonPreview({ data }: JsonPreviewProps) {
 
   return (
     <div className="mt-4 bg-slate-950/60 border border-slate-800 rounded-2xl overflow-hidden">
-      {/* Header */}
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-800 bg-slate-900/60">
         <Braces size={13} className="text-violet-400" />
         <span className="text-xs font-medium text-slate-400">
@@ -229,11 +234,8 @@ function JsonPreview({ data }: JsonPreviewProps) {
           </span>
         )}
       </div>
-
-      {/* Tree */}
-      <div className="px-2 py-2 max-h-52 overflow-y-auto scrollbar-thin">
+      <div className="px-2 py-2 max-h-48 overflow-y-auto">
         {isArray ? (
-          // Array root — show first item's structure
           <>
             <div className="flex items-center gap-1.5 py-0.5 px-2">
               <SquareStack size={11} className="text-cyan-400" />
@@ -248,31 +250,273 @@ function JsonPreview({ data }: JsonPreviewProps) {
                 ? Object.entries(
                     (data as JsonValue[])[0] as Record<string, JsonValue>,
                   ).map(([k, v]) => (
-                    <TreeNode
-                      key={k}
-                      label={k}
-                      value={v}
-                      depth={1}
-                      defaultOpen={false}
-                    />
+                    <TreeNode key={k} label={k} value={v} depth={1} />
                   ))
                 : null}
             </div>
           </>
         ) : (
-          // Object root
           entries!.map(([k, v]) => (
-            <TreeNode
-              key={k}
-              label={k}
-              value={v}
-              depth={0}
-              defaultOpen={false}
-            />
+            <TreeNode key={k} label={k} value={v} depth={0} />
           ))
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Column Selector ──────────────────────────────────────────────────────────
+
+function ColumnSelector({
+  fields,
+  selected,
+  onChange,
+}: {
+  fields: string[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const filtered = fields.filter((f) =>
+    f.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  // Group fields by sheet prefix (root vs array children)
+  const rootFields = filtered.filter((f) => !f.includes("[]"));
+  const childFields = filtered.filter((f) => f.includes("[]"));
+
+  // Unique group prefixes e.g. "items[]"
+  const groups = [...new Set(childFields.map((f) => f.split("[]")[0] + "[]"))];
+
+  const toggleField = (field: string) => {
+    const next = new Set(selected);
+    if (next.has(field)) next.delete(field);
+    else next.add(field);
+    onChange(next);
+  };
+
+  const toggleAll = () => {
+    if (selected.size === fields.length) onChange(new Set());
+    else onChange(new Set(fields));
+  };
+
+  const toggleGroup = (prefix: string) => {
+    const groupFields = fields.filter((f) => f.startsWith(prefix));
+    const allSelected = groupFields.every((f) => selected.has(f));
+    const next = new Set(selected);
+    if (allSelected) groupFields.forEach((f) => next.delete(f));
+    else groupFields.forEach((f) => next.add(f));
+    onChange(next);
+  };
+
+  const selectedCount = selected.size;
+  const allSelected = selectedCount === fields.length;
+  const someSelected = selectedCount > 0 && !allSelected;
+
+  return (
+    <div className="mt-4">
+      {/* Toggle button */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 bg-slate-950/60 border border-slate-800 hover:border-slate-700 rounded-2xl px-4 py-3 transition-colors"
+      >
+        <SlidersHorizontal
+          size={14}
+          className="text-violet-400 flex-shrink-0"
+        />
+        <span className="text-xs font-medium text-slate-400">
+          Column Selection
+        </span>
+        <span className="ml-auto flex items-center gap-2">
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full font-medium
+            ${
+              allSelected
+                ? "bg-violet-500/10 text-violet-400"
+                : someSelected
+                  ? "bg-amber-500/10 text-amber-400"
+                  : "bg-slate-800 text-slate-500"
+            }`}
+          >
+            {selectedCount}/{fields.length}
+          </span>
+          <ChevronsUpDown size={13} className="text-slate-600" />
+        </span>
+      </button>
+
+      {/* Panel */}
+      {open && (
+        <div className="mt-2 bg-slate-950/80 border border-slate-800 rounded-2xl overflow-hidden">
+          {/* Search + select all */}
+          <div className="p-3 border-b border-slate-800 flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Search fields..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 placeholder-slate-600 outline-none focus:border-violet-500/50 transition-colors"
+            />
+            <button
+              onClick={toggleAll}
+              className="text-xs text-violet-400 hover:text-violet-300 font-medium whitespace-nowrap px-2 transition-colors"
+            >
+              {allSelected ? "None" : "All"}
+            </button>
+          </div>
+
+          {/* Field list */}
+          <div className="max-h-56 overflow-y-auto p-2">
+            {/* Root fields */}
+            {rootFields.length > 0 && (
+              <div className="mb-2">
+                <p className="text-xs text-slate-600 font-medium px-2 py-1">
+                  root
+                </p>
+                {rootFields.map((field) => (
+                  <FieldRow
+                    key={field}
+                    field={field}
+                    checked={selected.has(field)}
+                    onToggle={() => toggleField(field)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Child array groups */}
+            {groups.map((prefix) => {
+              const groupFields = filtered.filter((f) => f.startsWith(prefix));
+              const allGroupSelected = groupFields.every((f) =>
+                selected.has(f),
+              );
+              const someGroupSelected = groupFields.some((f) =>
+                selected.has(f),
+              );
+
+              return (
+                <div key={prefix} className="mb-2">
+                  <div className="flex items-center gap-2 px-2 py-1">
+                    <button
+                      onClick={() => toggleGroup(prefix)}
+                      className={`w-3.5 h-3.5 rounded flex items-center justify-center border flex-shrink-0 transition-colors
+                        ${
+                          allGroupSelected
+                            ? "bg-violet-500 border-violet-500"
+                            : someGroupSelected
+                              ? "bg-violet-500/40 border-violet-500/40"
+                              : "border-slate-700 bg-transparent"
+                        }`}
+                    >
+                      {(allGroupSelected || someGroupSelected) && (
+                        <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                          <path
+                            d={allGroupSelected ? "M1 4l2 2 4-4" : "M1 4h6"}
+                            stroke="white"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                    <p className="text-xs text-cyan-400 font-medium">
+                      {prefix}
+                    </p>
+                    <span className="text-xs text-slate-600 ml-auto">
+                      {groupFields.filter((f) => selected.has(f)).length}/
+                      {groupFields.length}
+                    </span>
+                  </div>
+                  {groupFields.map((field) => {
+                    const shortLabel = field.replace(prefix, "");
+                    return (
+                      <FieldRow
+                        key={field}
+                        field={field}
+                        label={shortLabel}
+                        checked={selected.has(field)}
+                        onToggle={() => toggleField(field)}
+                        indent
+                      />
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+            {filtered.length === 0 && (
+              <p className="text-xs text-slate-600 text-center py-4">
+                No fields match
+              </p>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-3 py-2 border-t border-slate-800 flex items-center justify-between">
+            <span className="text-xs text-slate-600">
+              {selectedCount === 0
+                ? "All fields will be included"
+                : `${selectedCount} field${selectedCount !== 1 ? "s" : ""} selected`}
+            </span>
+            <button
+              onClick={() => setOpen(false)}
+              className="text-xs text-violet-400 hover:text-violet-300 font-medium transition-colors"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FieldRow({
+  field,
+  label,
+  checked,
+  onToggle,
+  indent = false,
+}: {
+  field: string;
+  label?: string;
+  checked: boolean;
+  onToggle: () => void;
+  indent?: boolean;
+}) {
+  // Determine type hint from field name (best effort)
+  const displayLabel = label ?? field;
+
+  return (
+    <button
+      onClick={onToggle}
+      className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-800/50 transition-colors text-left
+        ${indent ? "pl-6" : ""}`}
+    >
+      <div
+        className={`w-3.5 h-3.5 rounded flex items-center justify-center border flex-shrink-0 transition-colors
+        ${checked ? "bg-violet-500 border-violet-500" : "border-slate-700 bg-transparent"}`}
+      >
+        {checked && (
+          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+            <path
+              d="M1 4l2 2 4-4"
+              stroke="white"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </div>
+      <span
+        className={`text-xs truncate ${checked ? "text-slate-300" : "text-slate-500"}`}
+      >
+        {displayLabel}
+      </span>
+    </button>
   );
 }
 
@@ -292,28 +536,33 @@ function formatRows(n: number): string {
 function App() {
   const [file, setFile] = useState<File | null>(null);
   const [previewData, setPreviewData] = useState<JsonValue | null>(null);
+  const [allFields, setAllFields] = useState<string[]>([]);
+  const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState(0);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
-  // Auto-dismiss error after 5s
   useEffect(() => {
     if (!error) return;
     const t = setTimeout(() => setError(null), 5000);
     return () => clearTimeout(t);
   }, [error]);
 
-  // Parse JSON for preview when file is selected
   const loadPreview = (f: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const parsed = JSON.parse(e.target?.result as string);
         setPreviewData(parsed);
+        const fields = extractFields(parsed);
+        setAllFields(fields);
+        setSelectedFields(new Set(fields)); // default: all selected
       } catch {
         setPreviewData(null);
+        setAllFields([]);
+        setSelectedFields(new Set());
       }
     };
     reader.readAsText(f);
@@ -324,6 +573,8 @@ function App() {
     setError(null);
     setSummary(null);
     setPreviewData(null);
+    setAllFields([]);
+    setSelectedFields(new Set());
     loadPreview(f);
   };
 
@@ -352,6 +603,12 @@ function App() {
     const formData = new FormData();
     formData.append("file", file);
 
+    // Only send fields param if user has deselected something
+    const allSelected = selectedFields.size === allFields.length;
+    if (!allSelected && selectedFields.size > 0) {
+      formData.append("fields", [...selectedFields].join(","));
+    }
+
     try {
       const result = await new Promise<{
         ok: boolean;
@@ -363,9 +620,8 @@ function App() {
         const xhr = new XMLHttpRequest();
 
         xhr.upload.addEventListener("progress", (e) => {
-          if (e.lengthComputable) {
+          if (e.lengthComputable)
             setProgress(Math.round((e.loaded / e.total) * 100));
-          }
         });
 
         xhr.addEventListener("load", () => {
@@ -426,6 +682,7 @@ function App() {
 
       setSummary(result.summary!);
       setPreviewData(null);
+      setAllFields([]);
       setStage("done");
       setFile(null);
       setTimeout(() => setStage("idle"), 3000);
@@ -480,8 +737,8 @@ function App() {
             id="fileInput"
             className="hidden"
             onChange={(e) => {
-              const selected = e.target.files?.[0];
-              if (selected) selectFile(selected);
+              const s = e.target.files?.[0];
+              if (s) selectFile(s);
             }}
           />
           <label htmlFor="fileInput" className="cursor-pointer block p-8">
@@ -504,6 +761,8 @@ function App() {
                     setFile(null);
                     setPreviewData(null);
                     setSummary(null);
+                    setAllFields([]);
+                    setSelectedFields(new Set());
                   }}
                   className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                 >
@@ -533,6 +792,15 @@ function App() {
           <JsonPreview data={previewData} />
         )}
 
+        {/* Column Selector */}
+        {allFields.length > 0 && !isLoading && (
+          <ColumnSelector
+            fields={allFields}
+            selected={selectedFields}
+            onChange={setSelectedFields}
+          />
+        )}
+
         {/* Upload Progress Bar */}
         {stage === "uploading" && (
           <div className="mt-4">
@@ -556,8 +824,7 @@ function App() {
           className="mt-4 w-full py-3.5 rounded-2xl text-sm font-semibold text-white
             bg-gradient-to-r from-violet-600 to-violet-500
             shadow-lg shadow-violet-500/25
-            hover:shadow-violet-500/40 hover:-translate-y-0.5
-            active:translate-y-0
+            hover:shadow-violet-500/40 hover:-translate-y-0.5 active:translate-y-0
             disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none disabled:translate-y-0
             transition-all duration-200"
         >
@@ -579,10 +846,13 @@ function App() {
               Done!
             </span>
           )}
-          {stage === "idle" && "Convert to Excel"}
+          {stage === "idle" &&
+            (selectedFields.size > 0 && selectedFields.size < allFields.length
+              ? `Convert ${selectedFields.size} fields to Excel`
+              : "Convert to Excel")}
         </button>
 
-        {/* Error Alert */}
+        {/* Error */}
         {error && (
           <div className="mt-4 flex items-start gap-2.5 bg-red-500/5 border border-red-500/20 text-red-400 text-sm rounded-xl px-4 py-3">
             <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
@@ -596,7 +866,7 @@ function App() {
           </div>
         )}
 
-        {/* Conversion Summary */}
+        {/* Summary */}
         {summary && (
           <div className="mt-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3">

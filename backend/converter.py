@@ -1,3 +1,5 @@
+# # converter.py
+
 from openpyxl import Workbook
 from io import BytesIO
 import time
@@ -13,22 +15,18 @@ class SheetManager:
         self.sheet_name_map = {}
         self.sheet_name_counter = {}
         self.column_widths = {}
-        self.row_counts = {}  # Track rows per sheet
+        self.row_counts = {}
 
     def clean_sheet_name(self, name):
-
         base = name.split("_")[-1]
-
         if base not in self.sheet_name_counter:
             self.sheet_name_counter[base] = 1
             return base[:31]
-
         self.sheet_name_counter[base] += 1
         new_name = f"{base}_{self.sheet_name_counter[base]}"
         return new_name[:31]
 
     def get_sheet(self, raw_name):
-
         if raw_name not in self.sheet_name_map:
             clean = self.clean_sheet_name(raw_name)
             self.sheet_name_map[raw_name] = clean
@@ -36,7 +34,6 @@ class SheetManager:
         sheet_name = self.sheet_name_map[raw_name]
 
         if sheet_name not in self.sheets:
-
             if sheet_name == "root":
                 sheet = self.workbook.active
                 sheet.title = "root"
@@ -51,33 +48,25 @@ class SheetManager:
         return sheet_name, self.sheets[sheet_name]
 
     def update_column_width(self, sheet_name, column_index, value):
-
         value_length = len(str(value)) if value is not None else 0
         current = self.column_widths[sheet_name].get(column_index, 0)
-
         if value_length > current:
             self.column_widths[sheet_name][column_index] = value_length
 
     def write_row(self, raw_name, row):
-
         sheet_name, sheet = self.get_sheet(raw_name)
 
         if self.headers[sheet_name] is None:
-
             headers = list(row.keys())
             self.headers[sheet_name] = headers
-
             sheet.append(headers)
-
             for cell in sheet[1]:
                 cell.font = Font(bold=True)
-
             for idx, header in enumerate(headers, start=1):
                 self.update_column_width(sheet_name, idx, header)
 
         headers = self.headers[sheet_name]
         values = [row.get(h) for h in headers]
-
         sheet.append(values)
         self.row_counts[sheet_name] += 1
 
@@ -85,7 +74,6 @@ class SheetManager:
             self.update_column_width(sheet_name, idx, value)
 
     def apply_column_widths(self):
-
         for sheet_name, sheet in self.sheets.items():
             widths = self.column_widths[sheet_name]
             for col_idx, width in widths.items():
@@ -96,9 +84,44 @@ class SheetManager:
         return sum(self.row_counts.values())
 
 
-def json_to_excel_bytes(data):
+def extract_fields(data) -> list[str]:
+    """
+    Walk the JSON and return all leaf field paths.
+    Arrays of objects use [] notation: items[].product
+    """
+    fields = []
+    seen = set()
 
+    def walk(node, prefix=""):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                path = f"{prefix}.{k}" if prefix else k
+                if isinstance(v, dict):
+                    walk(v, path)
+                elif isinstance(v, list) and v and isinstance(v[0], dict):
+                    walk(v[0], f"{path}[]")
+                else:
+                    if path not in seen:
+                        seen.add(path)
+                        fields.append(path)
+        elif isinstance(node, list) and node:
+            walk(node[0], prefix)
+
+    walk(data)
+    return fields
+
+
+def json_to_excel_bytes(data, selected_fields: list[str] | None = None):
+    """
+    Convert JSON to Excel.
+    selected_fields: if provided, only include these fields in root sheet.
+                     Child sheets (arrays) are always included but also filtered.
+    """
     start_time = time.time()
+
+    # Build a set of selected fields for fast lookup
+    # Also build per-sheet allowed columns derived from selected fields
+    filter_active = selected_fields is not None and len(selected_fields) > 0
 
     workbook = Workbook()
     sheet_manager = SheetManager(workbook)
@@ -112,10 +135,8 @@ def json_to_excel_bytes(data):
         return current
 
     def flatten_dict(d, parent_key=""):
-
         items = {}
         stack = [(d, parent_key)]
-
         while stack:
             current_dict, prefix = stack.pop()
             for k, v in current_dict.items():
@@ -124,8 +145,27 @@ def json_to_excel_bytes(data):
                     stack.append((v, new_key))
                 else:
                     items[new_key] = v
-
         return items
+
+    def should_include_field(field_name: str, sheet_name: str) -> bool:
+        """Check if a field should be included based on selected_fields."""
+        if not filter_active:
+            return True
+
+        # Always keep _id and _parent_id
+        if field_name in ("_id", "_parent_id"):
+            return True
+
+        # For root sheet: match directly
+        if sheet_name == "root":
+            return field_name in selected_fields
+
+        # For child sheets (e.g. items): match fields like "items[].product"
+        # sheet_name raw key ends with the array key e.g. "root_items"
+        # selected_fields for child look like "items[].product"
+        sheet_key = sheet_name.split("_")[-1]  # e.g. "items"
+        qualified = f"{sheet_key}[].{field_name}"
+        return qualified in selected_fields
 
     def process_node(node, sheet_name="root", parent_id=None):
 
@@ -135,7 +175,6 @@ def json_to_excel_bytes(data):
             return
 
         if isinstance(node, dict):
-
             row = {}
             current_id = generate_id()
             row["_id"] = current_id
@@ -144,10 +183,12 @@ def json_to_excel_bytes(data):
             for key, value in node.items():
 
                 if isinstance(value, dict):
-                    row.update(flatten_dict(value, key))
+                    flat = flatten_dict(value, key)
+                    for flat_key, flat_val in flat.items():
+                        if should_include_field(flat_key, sheet_name):
+                            row[flat_key] = flat_val
 
                 elif isinstance(value, list):
-
                     if not value:
                         continue
 
@@ -166,7 +207,8 @@ def json_to_excel_bytes(data):
                             sheet_manager.write_row(child_sheet, primitive_row)
 
                 else:
-                    row[key] = value
+                    if should_include_field(key, sheet_name):
+                        row[key] = value
 
             sheet_manager.write_row(sheet_name, row)
 
@@ -198,6 +240,7 @@ def json_to_excel_bytes(data):
     print(f"Total rows     : {summary['rows']}")
     print(f"File size      : {summary['file_size_kb']} KB")
     print(f"Time taken     : {summary['time_sec']}s")
+    print(f"Field filter   : {'active' if filter_active else 'off'}")
     print("-------------------------------------------")
 
     return output, summary

@@ -42,7 +42,7 @@ https://json2excel-app.onrender.com/docs
 ### Upload & Preview
 
 ![description](docs/screenshots/ui-overview.png)
-![description](docs/screenshots/json-preview2.png)
+![description](docs/screenshots/json-preview.png)
 
 ### Conversion Summary
 
